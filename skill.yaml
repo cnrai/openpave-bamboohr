@@ -1,0 +1,213 @@
+# OpenPAVE BambooHR Skill
+# Query BambooHR for time off and employee information
+
+name: bamboohr
+version: 1.0.0
+description: Query BambooHR for time off, employees, and applicant tracking
+
+author:
+  name: cnrai
+  url: https://github.com/cnrai
+
+license: MIT
+homepage: https://github.com/cnrai/openpave-bamboohr
+repository: cnrai/openpave-bamboohr
+
+# Execution pattern
+pattern: sandbox
+entrypoint: index.js
+
+# Token configuration
+tokens:
+  bamboohr:
+    env: BAMBOOHR_API_KEY
+    type: api_key
+    domains:
+      - api.bamboohr.com
+    placement:
+      type: header
+      name: Authorization
+      format: "Basic {token}"
+    encoding: basic_with_x
+
+# Global options available for all commands
+global_options:
+  - --company <domain>        # Company domain (default crholdingslimited)
+  - --json                    # Output raw JSON
+  - --summary                 # Human-readable output
+  - --help                    # Show help
+
+# Available commands
+commands:
+  - name: whos-out
+    description: Get who's out today or within a date range
+    options:
+      - -s, --start <date>
+      - -e, --end <date>
+      - -w, --week
+      - --summary
+      - --json
+
+  - name: directory
+    description: Get employee directory
+    options:
+      - --summary
+      - --json
+
+  - name: employee
+    description: Get a specific employee by ID
+    args:
+      - <id>
+    options:
+      - -f, --fields <fields>
+      - --json
+
+  - name: time-off
+    description: Get time off requests
+    options:
+      - -s, --start <date>
+      - -e, --end <date>
+      - --status <status>
+      - --employee <id>
+      - --json
+
+  - name: time-off-types
+    description: List time off types
+    options:
+      - --json
+
+  - name: candidates
+    description: List job candidates/applications
+    options:
+      - -j, --job <jobId>
+      - --status <statusId>
+      - --sort <field>
+      - --order <order>
+      - -p, --page <page>
+      - -l, --limit <limit>
+      - --summary
+      - --json
+
+  - name: candidate
+    description: Get a specific candidate by application ID
+    args:
+      - <id>
+    options:
+      - --summary
+      - --json
+
+  - name: statuses
+    description: List applicant statuses
+    options:
+      - --summary
+      - --json
+
+  - name: jobs
+    description: List job openings
+    options:
+      - --status <status>
+      - --sort <field>
+      - --order <order>
+      - --summary
+      - --json
+
+  - name: update-candidate-status
+    description: Update candidate status
+    args:
+      - <applicationId>
+      - <statusId>
+    options:
+      - --json
+
+  - name: add-candidate-comment
+    description: Add a comment to a candidate
+    args:
+      - <applicationId>
+      - <comment>
+    options:
+      - --json
+
+  - name: add-candidate
+    description: Create a new candidate application
+    options:
+      - --first-name <name>
+      - --last-name <name>
+      - -j, --job <jobId>
+      - -e, --email <email>
+      - -p, --phone <phone>
+      - --address <address>
+      - --city <city>
+      - --state <state>
+      - --zip <zip>
+      - --country <country>
+      - --source <source>
+      - --website <url>
+      - --linkedin <url>
+      - --cover-letter <text>
+      - --json
+    required:
+      - --first-name
+      - --last-name
+      - -j, --job
+
+# Configuration
+configuration:
+  company:
+    description: BambooHR company domain
+    default: crholdingslimited
+    argument: --company
+
+# Sandbox permissions
+permissions:
+  fs.read: []
+  fs.write: []
+  network:
+    - api.bamboohr.com
+  modules: []
+  system: []
+
+# Platform compatibility
+platforms:
+  - darwin
+  - linux
+  - win32
+
+engines:
+  node: ">=16.0.0"
+
+# Metadata
+keywords:
+  - bamboohr
+  - hr
+  - time-off
+  - employees
+  - applicant-tracking
+  - ats
+  - pave
+  - openpave
+
+category: hr
+icon: "\U0001F465"
+
+# Usage examples
+examples:
+  - description: Check who's out today
+    command: pave-run bamboohr.js whos-out --summary
+
+  - description: Check who's out this week
+    command: pave-run bamboohr.js whos-out --week --summary
+
+  - description: Get employee directory
+    command: pave-run bamboohr.js directory --summary
+
+  - description: List job candidates
+    command: pave-run bamboohr.js candidates --summary
+
+  - description: List open jobs
+    command: pave-run bamboohr.js jobs --status OPEN --summary
+
+  - description: Update candidate status to Not Qualified
+    command: pave-run bamboohr.js update-candidate-status 1645 12
+
+  - description: Add comment to candidate
+    command: pave-run bamboohr.js add-candidate-comment 1645 "Reviewed resume"

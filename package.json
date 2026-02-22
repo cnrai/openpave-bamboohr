@@ -1,0 +1,39 @@
+{
+  "name": "openpave-bamboohr",
+  "version": "1.0.0",
+  "description": "OpenPAVE BambooHR skill - Query time off, employees, and applicant tracking",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "bamboohr",
+    "hr",
+    "time-off",
+    "employees",
+    "applicant-tracking",
+    "ats",
+    "pave",
+    "openpave",
+    "sandbox"
+  ],
+  "author": "cnrai",
+  "license": "MIT",
+  "homepage": "https://github.com/cnrai/openpave-bamboohr",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cnrai/openpave-bamboohr.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cnrai/openpave-bamboohr/issues"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "index.js",
+    "skill.yaml",
+    "README.md",
+    "LICENSE"
+  ]
+}
