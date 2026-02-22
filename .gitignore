@@ -42,3 +42,6 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+-e 
+# Pave session files
+.pave-session.json
