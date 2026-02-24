@@ -2,7 +2,7 @@
 # Query BambooHR for time off and employee information
 
 name: bamboohr
-version: 1.0.1
+version: 1.0.2
 description: Query BambooHR for time off, employees, and applicant tracking
 
 author:

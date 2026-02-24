@@ -404,8 +404,10 @@ class BambooClient {
       throw new Error('No resume file found for this candidate');
     }
 
-    // Download the resume file
-    const url = `${this.baseUrl}/applicant_tracking/applications/${applicationId}/resume`;
+    // Download the resume file using the files endpoint with resumeFileId
+    // BambooHR stores resumes as files - we need to use the files API
+    const fileId = application.resumeFileId;
+    const url = `${this.baseUrl}/files/file/${fileId}`;
     
     let response;
     if (this.useSecureToken) {
@@ -429,8 +431,8 @@ class BambooClient {
       throw new Error(`Failed to download resume: HTTP ${response.status} - ${response.statusText}`);
     }
 
-    // Determine filename from Content-Disposition header or use default
-    let filename = `candidate_${applicationId}_resume`;
+    // Determine filename from Content-Disposition header, API response, or use default
+    let filename = application.resumeFileName || `candidate_${applicationId}_resume`;
     const contentDisposition = response.headers.get('content-disposition');
     if (contentDisposition && contentDisposition.includes('filename=')) {
       const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
