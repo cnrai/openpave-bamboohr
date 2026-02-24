@@ -407,7 +407,7 @@ class BambooClient {
     // Download the resume file using the files endpoint with resumeFileId
     // BambooHR stores resumes as files - we need to use the files API
     const fileId = application.resumeFileId;
-    const url = `${this.baseUrl}/files/file/${fileId}`;
+    const url = `${this.baseUrl}/files/${fileId}`;
     
     let response;
     if (this.useSecureToken) {
