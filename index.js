@@ -387,6 +387,132 @@ class BambooClient {
     const queryString = encodeQueryParams(params);
     return this.request(`/applicant_tracking/jobs${queryString}`);
   }
+
+  /**
+   * Download candidate resume/CV file
+   * @param {string} applicationId - The application ID
+   * @param {string} outputPath - Path to save the file (optional)
+   * @returns {Object} - Object with file info: { filename, filepath, size }
+   */
+  downloadCandidateResume(applicationId, outputPath = null) {
+    const fs = require('fs');
+    
+    // First get application details to check if resume exists
+    const application = this.getApplication(applicationId);
+    
+    if (!application.resumeFileId) {
+      throw new Error('No resume file found for this candidate');
+    }
+
+    // Download the resume file
+    const url = `${this.baseUrl}/applicant_tracking/applications/${applicationId}/resume`;
+    
+    let response;
+    if (this.useSecureToken) {
+      response = authenticatedFetch('bamboohr', url, {
+        timeout: 30000
+      });
+    } else {
+      if (!this.apiKey) {
+        throw new Error('BambooHR API key not configured');
+      }
+      const auth = base64Encode(`${this.apiKey}:x`);
+      response = fetch(url, {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+        },
+        timeout: 30000
+      });
+    }
+
+    if (!response.ok) {
+      throw new Error(`Failed to download resume: HTTP ${response.status} - ${response.statusText}`);
+    }
+
+    // Determine filename from Content-Disposition header or use default
+    let filename = `candidate_${applicationId}_resume`;
+    const contentDisposition = response.headers.get('content-disposition');
+    if (contentDisposition && contentDisposition.includes('filename=')) {
+      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (filenameMatch) {
+        filename = filenameMatch[1].replace(/['"]/g, '');
+      }
+    }
+
+    // Add extension based on content type if not present
+    const contentType = response.headers.get('content-type');
+    if (!filename.includes('.')) {
+      if (contentType && contentType.includes('pdf')) {
+        filename += '.pdf';
+      } else if (contentType && contentType.includes('word')) {
+        filename += '.docx';
+      } else {
+        filename += '.pdf'; // Default to PDF
+      }
+    }
+
+    // Determine output path
+    const finalPath = outputPath || `tmp/${filename}`;
+    
+    // Ensure tmp directory exists
+    if (finalPath.includes('/')) {
+      const dir = finalPath.substring(0, finalPath.lastIndexOf('/'));
+      if (!fs.existsSync(dir)) {
+        try {
+          fs.mkdirSync(dir, { recursive: true });
+        } catch (e) {
+          // Ignore errors if directory creation fails
+        }
+      }
+    }
+
+    // Write file
+    const content = response.text(); // Get as binary string
+    fs.writeFileSync(finalPath, content, 'binary');
+
+    const stats = fs.statSync(finalPath);
+
+    return {
+      filename,
+      filepath: finalPath,
+      size: stats.size,
+      contentType: contentType || 'application/octet-stream'
+    };
+  }
+
+  /**
+   * Get comments/notes for a candidate application
+   * @param {string} applicationId - The application ID
+   * @returns {Array} - Array of comments with author and date info
+   */
+  getCandidateComments(applicationId) {
+    return this.request(`/applicant_tracking/applications/${applicationId}/comments`);
+  }
+
+  /**
+   * Get application notes (private internal notes)
+   * @param {string} applicationId - The application ID
+   * @returns {Object} - Notes data
+   */
+  getCandidateNotes(applicationId) {
+    return this.request(`/applicant_tracking/applications/${applicationId}/notes`);
+  }
+
+  /**
+   * Add or update application notes
+   * @param {string} applicationId - The application ID
+   * @param {string} notes - Notes text to add/update
+   * @returns {Object} - Result object
+   */
+  updateCandidateNotes(applicationId, notes) {
+    return this.request(`/applicant_tracking/applications/${applicationId}/notes`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ notes }),
+    });
+  }
 }
 
 // ============================================
@@ -521,10 +647,66 @@ function printCandidateSummary(app) {
     console.log(`\nStatus changed by: ${changedBy} on ${changedDate}`);
   }
   
-  console.log(`\n📝 Comments: ${app.commentCount || 0}`);
-  console.log(`✉️  Emails: ${app.emailCount || 0}`);
-  console.log(`📄 Has Resume: ${app.resumeFileId ? 'Yes' : 'No'}`);
-  console.log(`📝 Has Cover Letter: ${app.coverLetterFileId ? 'Yes' : 'No'}`);
+  console.log(`\nFiles & Feedback:`);
+  console.log(`  Resume/CV: ${app.resumeFileId ? '✅ Available' : '❌ Not uploaded'}`);
+  console.log(`  Cover Letter: ${app.coverLetterFileId ? '✅ Available' : '❌ Not uploaded'}`);
+  console.log(`  Comments: ${app.commentCount || 0}`);
+  console.log(`  Emails: ${app.emailCount || 0}`);
+  
+  if (app.resumeFileId) {
+    console.log(`\n💡 To download CV: node bamboohr.js download-cv ${app.id}`);
+  }
+  if ((app.commentCount || 0) > 0) {
+    console.log(`💡 To view comments: node bamboohr.js candidate-comments ${app.id} --summary`);
+  }
+  console.log(`💡 To view/edit notes: node bamboohr.js candidate-notes ${app.id} --summary`);
+}
+
+function printCandidateCommentsSummary(comments, applicationId) {
+  console.log(`Comments for Application ${applicationId}`);
+  console.log('='.repeat(40));
+  
+  if (!comments || comments.length === 0) {
+    console.log('No comments found.');
+    return;
+  }
+
+  for (const comment of comments) {
+    const date = new Date(comment.createdDate).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    const author = comment.createdByUser ? 
+      `${comment.createdByUser.firstName} ${comment.createdByUser.lastName}` : 
+      'System';
+    
+    console.log(`\n[${comment.id}] ${author} - ${date}`);
+    console.log(`${comment.comment}`);
+  }
+  
+  console.log(`\nTotal: ${comments.length} comment(s)`);
+}
+
+function printCandidateNotesSummary(notes, applicationId) {
+  console.log(`Private Notes for Application ${applicationId}`);
+  console.log('='.repeat(40));
+  
+  if (!notes || !notes.notes) {
+    console.log('No private notes found.');
+    return;
+  }
+
+  const lastModified = notes.lastModified ? 
+    new Date(notes.lastModified).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    }) : 
+    'Unknown';
+  
+  const modifiedBy = notes.lastModifiedByUser ? 
+    `${notes.lastModifiedByUser.firstName} ${notes.lastModifiedByUser.lastName}` : 
+    'Unknown';
+  
+  console.log(`Last modified: ${lastModified} by ${modifiedBy}\n`);
+  console.log(notes.notes);
 }
 
 function printStatusesSummary(statuses) {
@@ -639,6 +821,11 @@ APPLICANT TRACKING (ATS) COMMANDS:
   add-candidate-comment <appId> <comment>
                               Add comment to candidate
   add-candidate               Create new candidate
+  download-cv <appId>         Download candidate resume/CV
+  candidate-comments <appId>  Get candidate comments
+  candidate-notes <appId>     Get candidate private notes
+  update-candidate-notes <appId> <notes>
+                              Add/update private notes
 
 OPTIONS:
   --company <domain>          Company domain (default: crholdingslimited)
@@ -651,6 +838,7 @@ OPTIONS:
   -l, --limit <limit>         Results per page (max 100)
   --sort <field>              Sort field
   --order <order>             Sort order (ASC/DESC)
+  -o, --output <path>         Output file path (for downloads)
   --summary                   Human-readable output
   --json                      Raw JSON output
 
@@ -661,6 +849,9 @@ EXAMPLES:
   node bamboohr.js candidates --summary
   node bamboohr.js jobs --status OPEN --summary
   node bamboohr.js update-candidate-status 1645 12
+  node bamboohr.js download-cv 1712
+  node bamboohr.js candidate-comments 1712 --summary
+  node bamboohr.js update-candidate-notes 1712 "Strong candidate"
 
 APPLICANT STATUS IDs:
   1  = New              10 = Not a Fit
@@ -899,6 +1090,89 @@ function main() {
         console.log(`\n✅ Candidate ${firstName} ${lastName} added successfully!`);
         if (result.id) {
           console.log(`Application ID: ${result.id}`);
+        }
+        break;
+      }
+
+      case 'download-cv': {
+        const applicationId = parsed.positional[0];
+        if (!applicationId) {
+          console.error('Error: Application ID required');
+          console.error('Usage: node bamboohr.js download-cv <appId> [-o output.pdf]');
+          process.exit(1);
+        }
+
+        const outputPath = parsed.options.output || parsed.options.o;
+        const result = client.downloadCandidateResume(applicationId, outputPath);
+
+        if (parsed.options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`✅ Resume downloaded successfully:`);
+          console.log(`   File: ${result.filename}`);
+          console.log(`   Path: ${result.filepath}`);
+          console.log(`   Size: ${(result.size / 1024).toFixed(1)} KB`);
+          console.log(`   Type: ${result.contentType}`);
+        }
+        break;
+      }
+
+      case 'candidate-comments': {
+        const applicationId = parsed.positional[0];
+        if (!applicationId) {
+          console.error('Error: Application ID required');
+          console.error('Usage: node bamboohr.js candidate-comments <appId>');
+          process.exit(1);
+        }
+
+        const result = client.getCandidateComments(applicationId);
+
+        if (parsed.options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else if (parsed.options.summary) {
+          printCandidateCommentsSummary(result, applicationId);
+        } else {
+          console.log(JSON.stringify(result, null, 2));
+        }
+        break;
+      }
+
+      case 'candidate-notes': {
+        const applicationId = parsed.positional[0];
+        if (!applicationId) {
+          console.error('Error: Application ID required');
+          console.error('Usage: node bamboohr.js candidate-notes <appId>');
+          process.exit(1);
+        }
+
+        const result = client.getCandidateNotes(applicationId);
+
+        if (parsed.options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else if (parsed.options.summary) {
+          printCandidateNotesSummary(result, applicationId);
+        } else {
+          console.log(JSON.stringify(result, null, 2));
+        }
+        break;
+      }
+
+      case 'update-candidate-notes': {
+        const applicationId = parsed.positional[0];
+        const notes = parsed.positional.slice(1).join(' ');
+
+        if (!applicationId || !notes) {
+          console.error('Error: Application ID and notes text required');
+          console.error('Usage: node bamboohr.js update-candidate-notes <appId> "notes text"');
+          process.exit(1);
+        }
+
+        const result = client.updateCandidateNotes(applicationId, notes);
+
+        if (parsed.options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(`✅ Notes updated successfully for application ${applicationId}`);
         }
         break;
       }

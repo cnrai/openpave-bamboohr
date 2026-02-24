@@ -2,7 +2,7 @@
 # Query BambooHR for time off and employee information
 
 name: bamboohr
-version: 1.0.0
+version: 1.0.1
 description: Query BambooHR for time off, employees, and applicant tracking
 
 author:
@@ -150,6 +150,38 @@ commands:
       - --last-name
       - -j, --job
 
+  - name: download-cv
+    description: Download candidate resume/CV file
+    args:
+      - <applicationId>
+    options:
+      - -o, --output <path>
+      - --json
+
+  - name: candidate-comments
+    description: Get comments for a candidate application
+    args:
+      - <applicationId>
+    options:
+      - --summary
+      - --json
+
+  - name: candidate-notes
+    description: Get private notes for a candidate application
+    args:
+      - <applicationId>
+    options:
+      - --summary
+      - --json
+
+  - name: update-candidate-notes
+    description: Add or update private notes for a candidate
+    args:
+      - <applicationId>
+      - <notes>
+    options:
+      - --json
+
 # Configuration
 configuration:
   company:
@@ -211,3 +243,15 @@ examples:
 
   - description: Add comment to candidate
     command: pave-run bamboohr.js add-candidate-comment 1645 "Reviewed resume"
+
+  - description: Download candidate CV
+    command: pave-run bamboohr.js download-cv 1645
+
+  - description: View candidate comments
+    command: pave-run bamboohr.js candidate-comments 1645 --summary
+
+  - description: View candidate notes
+    command: pave-run bamboohr.js candidate-notes 1645 --summary
+
+  - description: Update candidate notes
+    command: pave-run bamboohr.js update-candidate-notes 1645 "Strong technical skills"
