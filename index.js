@@ -396,6 +396,7 @@ class BambooClient {
    */
   downloadCandidateResume(applicationId, outputPath = null) {
     const fs = require('fs');
+    const path = require('path');
     
     // First get application details to check if resume exists
     const application = this.getApplication(applicationId);
@@ -404,15 +405,37 @@ class BambooClient {
       throw new Error('No resume file found for this candidate');
     }
 
+    // Determine filename from API response or use default
+    let filename = application.resumeFileName || `candidate_${applicationId}_resume`;
+    
+    // Add extension if not present (we'll verify/update after download based on content-type)
+    if (!filename.includes('.')) {
+      filename += '.pdf'; // Default to PDF, will be updated if content-type says otherwise
+    }
+
+    // Determine output path
+    let finalPath = outputPath || path.join('tmp', filename);
+    
+    // Ensure output directory exists
+    const dir = path.dirname(finalPath);
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch (e) {
+        // Ignore errors if directory creation fails
+      }
+    }
+
     // Download the resume file using the files endpoint with resumeFileId
-    // BambooHR stores resumes as files - we need to use the files API
+    // Use saveTo option for binary-safe download (prevents UTF-8 corruption)
     const fileId = application.resumeFileId;
     const url = `${this.baseUrl}/files/${fileId}`;
     
     let response;
     if (this.useSecureToken) {
       response = authenticatedFetch('bamboohr', url, {
-        timeout: 30000
+        timeout: 30000,
+        saveTo: finalPath  // Binary-safe: writes directly to file
       });
     } else {
       if (!this.apiKey) {
@@ -423,7 +446,8 @@ class BambooClient {
         headers: {
           'Authorization': `Basic ${auth}`,
         },
-        timeout: 30000
+        timeout: 30000,
+        saveTo: finalPath
       });
     }
 
@@ -431,46 +455,33 @@ class BambooClient {
       throw new Error(`Failed to download resume: HTTP ${response.status} - ${response.statusText}`);
     }
 
-    // Determine filename from Content-Disposition header, API response, or use default
-    let filename = application.resumeFileName || `candidate_${applicationId}_resume`;
+    // Check content-type and rename file if extension doesn't match
+    const contentType = response.headers.get('content-type');
     const contentDisposition = response.headers.get('content-disposition');
+    
+    // Try to get actual filename from Content-Disposition header
     if (contentDisposition && contentDisposition.includes('filename=')) {
       const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
       if (filenameMatch) {
-        filename = filenameMatch[1].replace(/['"]/g, '');
-      }
-    }
-
-    // Add extension based on content type if not present
-    const contentType = response.headers.get('content-type');
-    if (!filename.includes('.')) {
-      if (contentType && contentType.includes('pdf')) {
-        filename += '.pdf';
-      } else if (contentType && contentType.includes('word')) {
-        filename += '.docx';
-      } else {
-        filename += '.pdf'; // Default to PDF
-      }
-    }
-
-    // Determine output path
-    const finalPath = outputPath || `tmp/${filename}`;
-    
-    // Ensure tmp directory exists
-    if (finalPath.includes('/')) {
-      const dir = finalPath.substring(0, finalPath.lastIndexOf('/'));
-      if (!fs.existsSync(dir)) {
-        try {
-          fs.mkdirSync(dir, { recursive: true });
-        } catch (e) {
-          // Ignore errors if directory creation fails
+        const headerFilename = filenameMatch[1].replace(/['"]/g, '');
+        if (headerFilename && headerFilename !== filename) {
+          // Rename file to match server-provided filename
+          const newPath = path.join(dir, headerFilename);
+          try {
+            fs.renameSync(finalPath, newPath);
+            finalPath = newPath;
+            filename = headerFilename;
+          } catch (e) {
+            // Keep original path if rename fails
+          }
         }
       }
     }
 
-    // Write file
-    const content = response.text(); // Get as binary string
-    fs.writeFileSync(finalPath, content, 'binary');
+    // Verify file was saved
+    if (!fs.existsSync(finalPath)) {
+      throw new Error('Failed to save resume file');
+    }
 
     const stats = fs.statSync(finalPath);
 
