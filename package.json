@@ -1,6 +1,6 @@
 {
   "name": "openpave-bamboohr",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "OpenPAVE BambooHR skill - Query time off, employees, and applicant tracking",
   "main": "index.js",
   "scripts": {
