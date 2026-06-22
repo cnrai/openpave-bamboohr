@@ -101,11 +101,99 @@ function base64Encode(str) {
 }
 
 // BambooHR Client Class
+
+// ── PAVE Auth Proxy (replaces deprecated authenticatedFetch global) ──
+// Direct HTTP calls to the PAVE auth proxy at /proxy/:tokenName/*path
+var PAVE_PROXY_BASE = process.env.PAVE_PROXY_URL || '';
+
+function _shellQuote(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+function proxyHasToken(tokenName) {
+  if (!PAVE_PROXY_BASE) return false;
+  try {
+    var url = PAVE_PROXY_BASE.replace(/\/$/, '') + '/_tokens/' + encodeURIComponent(tokenName);
+    var out = require('child_process').execSync(
+      'curl -sS --max-time 5 ' + _shellQuote(url),
+      { encoding: 'utf8', timeout: 8000, stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    var r = JSON.parse(out);
+    return r.has === true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function proxyFetch(tokenName, url, options) {
+  options = options || {};
+  if (!PAVE_PROXY_BASE) {
+    throw new Error('PAVE_PROXY_URL not set - cannot reach auth proxy');
+  }
+
+  var parsed = new URL(url);
+  var proxyUrl = PAVE_PROXY_BASE.replace(/\/$/, '') + '/' + encodeURIComponent(tokenName) + parsed.pathname + parsed.search;
+  proxyUrl += (proxyUrl.indexOf('?') !== -1 ? '&' : '?') + '_mode=json';
+  if (options.saveTo) {
+    proxyUrl += '&_saveTo=' + encodeURIComponent(options.saveTo);
+  }
+
+  var method = options.method || 'GET';
+  var timeout = options.timeout || 30000;
+  var cmd = 'curl -sS -X ' + method + ' --max-time ' + Math.ceil(timeout / 1000);
+
+  var headers = Object.assign({}, options.headers || {});
+  if (options.body && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  for (var k in headers) {
+    cmd += ' -H ' + _shellQuote(k + ': ' + headers[k]);
+  }
+
+  if (options.body) {
+    var bodyStr = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
+    cmd += ' -d ' + _shellQuote(bodyStr);
+  }
+
+  cmd += ' ' + _shellQuote(proxyUrl);
+
+  var out;
+  try {
+    out = require('child_process').execSync(cmd, {
+      encoding: 'utf8', timeout: timeout + 5000, maxBuffer: 10 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+  } catch (err) {
+    var stdout = err.stdout ? err.stdout.toString() : '';
+    var stderr = err.stderr ? err.stderr.toString() : '';
+    if (stdout) { out = stdout; } else {
+      throw new Error('Proxy request failed: ' + (stderr.trim() || err.message));
+    }
+  }
+
+  var resp;
+  try { resp = JSON.parse(out); } catch (e) {
+    return { ok: true, status: 200, headers: { get: function() { return null; } },
+      text: function() { return out; }, json: function() { return JSON.parse(out || '{}'); } };
+  }
+  if (resp.error) throw new Error(resp.error);
+  if (resp.savedTo) {
+    return { ok: resp.ok || false, status: resp.status || 200, savedTo: resp.savedTo,
+      headers: { get: function() { return null; } },
+      text: function() { return ''; }, json: function() { return {}; } };
+  }
+  return { ok: resp.ok || false, status: resp.status || 200,
+    headers: { get: function(name) { var hs = resp.headers || {}, ln = name.toLowerCase();
+      for (var key in hs) { if (key.toLowerCase() === ln) return Array.isArray(hs[key]) ? hs[key][0] : hs[key]; }
+      return null; } },
+    text: function() { return resp.body || ''; }, json: function() { return JSON.parse(resp.body || '{}'); } };
+}
+
 class BambooClient {
   constructor(options = {}) {
     this.companyDomain = options.companyDomain || 'crholdingslimited';
     this.baseUrl = `https://api.bamboohr.com/api/gateway.php/${this.companyDomain}/v1`;
-    this.useSecureToken = typeof hasToken === 'function' && hasToken('bamboohr');
+    this.useSecureToken = proxyHasToken('bamboohr');
     this.apiKey = options.apiKey || null;
   }
 
@@ -144,7 +232,7 @@ class BambooClient {
 
     // Use secure token system if available
     if (this.useSecureToken) {
-      const response = authenticatedFetch('bamboohr', url, {
+      const response = proxyFetch('bamboohr', url, {
         ...options,
         headers: {
           'Accept': 'application/json',
@@ -255,6 +343,14 @@ class BambooClient {
   getEmployee(employeeId, fields = ['firstName', 'lastName', 'displayName', 'jobTitle', 'department', 'workEmail']) {
     const fieldsParam = fields.join(',');
     return this.request(`/employees/${employeeId}?fields=${fieldsParam}`);
+  }
+
+  /**
+   * Get employee table data (job information, compensation history, etc.)
+   * Common table names: jobInformation, compensation, training, education, etc.
+   */
+  getEmployeeTables(employeeId, tableName) {
+    return this.request(`/employees/${employeeId}/tables/${tableName}`);
   }
 
   /**
@@ -433,7 +529,7 @@ class BambooClient {
     
     let response;
     if (this.useSecureToken) {
-      response = authenticatedFetch('bamboohr', url, {
+      response = proxyFetch('bamboohr', url, {
         timeout: 30000,
         saveTo: finalPath  // Binary-safe: writes directly to file
       });
@@ -823,6 +919,9 @@ TIME OFF COMMANDS:
 EMPLOYEE COMMANDS:
   directory                   Get employee directory
   employee <id>               Get specific employee
+  employee-tables <id> [table] Get employee table data
+                             Tables: jobInformation, compensation, training, education
+                             (defaults to jobInformation + compensation if no table specified)
 
 APPLICANT TRACKING (ATS) COMMANDS:
   candidates                  List job candidates
@@ -887,7 +986,7 @@ function main() {
   }
 
   // Check for secure token
-  if (typeof hasToken === 'function' && !hasToken('bamboohr')) {
+  if (!proxyHasToken('bamboohr')) {
     BambooClient.showTokenInstructions();
     process.exit(1);
   }
@@ -911,12 +1010,10 @@ function main() {
           });
         }
         
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printWhosOutSummary(result, parsed.options.week || parsed.options.w);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -924,12 +1021,10 @@ function main() {
       case 'directory': {
         const result = client.getEmployeeDirectory();
         
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printDirectorySummary(result);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -947,7 +1042,37 @@ function main() {
           : undefined;
         
         const result = client.getEmployee(id, fields);
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
+        break;
+      }
+      
+      case 'employee-tables': {
+        const id = parsed.positional[0];
+        const tableName = parsed.positional[1];
+        if (!id) {
+          console.error('Error: Employee ID required');
+          console.error('Usage: node bamboohr.js employee-tables <id> [table-name]');
+          console.error('');
+          console.error('Common table names: jobInformation, compensation, training, education');
+          process.exit(1);
+        }
+        
+        if (!tableName) {
+          // If no table name specified, fetch common tables
+          const tables = ['jobInformation', 'compensation'];
+          const results = {};
+          for (const table of tables) {
+            try {
+              results[table] = client.getEmployeeTables(id, table);
+            } catch (e) {
+              results[table] = { error: e.message };
+            }
+          }
+          console.log(JSON.stringify(results));
+        } else {
+          const result = client.getEmployeeTables(id, tableName);
+          console.log(JSON.stringify(result));
+        }
         break;
       }
       
@@ -959,13 +1084,13 @@ function main() {
           employeeId: parsed.options.employee,
         });
         
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
         break;
       }
       
       case 'time-off-types': {
         const result = client.getTimeOffTypes();
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
         break;
       }
       
@@ -979,12 +1104,10 @@ function main() {
           pageLimit: parsed.options.limit || parsed.options.l,
         });
         
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printCandidatesSummary(result);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -999,12 +1122,10 @@ function main() {
         
         const result = client.getApplication(id);
         
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printCandidateSummary(result);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1012,12 +1133,10 @@ function main() {
       case 'statuses': {
         const result = client.getApplicantStatuses();
         
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printStatusesSummary(result);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1029,12 +1148,10 @@ function main() {
           sortOrder: parsed.options.order,
         });
         
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printJobsSummary(result);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1050,7 +1167,7 @@ function main() {
         }
         
         const result = client.updateApplicantStatus(applicationId, parseInt(statusId, 10));
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
         console.log(`\n✅ Status updated for application ${applicationId}`);
         break;
       }
@@ -1066,7 +1183,7 @@ function main() {
         }
         
         const result = client.addApplicationComment(applicationId, comment);
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
         console.log(`\n✅ Comment added to application ${applicationId}`);
         break;
       }
@@ -1099,7 +1216,7 @@ function main() {
           coverLetter: parsed.options['cover-letter'],
         });
         
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify(result));
         console.log(`\n✅ Candidate ${firstName} ${lastName} added successfully!`);
         if (result.id) {
           console.log(`Application ID: ${result.id}`);
@@ -1118,8 +1235,8 @@ function main() {
         const outputPath = parsed.options.output || parsed.options.o;
         const result = client.downloadCandidateResume(applicationId, outputPath);
 
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
+        if (!parsed.options.summary) {
+          console.log(JSON.stringify(result));
         } else {
           console.log(`✅ Resume downloaded successfully:`);
           console.log(`   File: ${result.filename}`);
@@ -1140,12 +1257,10 @@ function main() {
 
         const result = client.getCandidateComments(applicationId);
 
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printCandidateCommentsSummary(result, applicationId);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1160,12 +1275,10 @@ function main() {
 
         const result = client.getCandidateNotes(applicationId);
 
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else if (parsed.options.summary) {
+        if (parsed.options.summary) {
           printCandidateNotesSummary(result, applicationId);
         } else {
-          console.log(JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
         }
         break;
       }
@@ -1182,8 +1295,8 @@ function main() {
 
         const result = client.updateCandidateNotes(applicationId, notes);
 
-        if (parsed.options.json) {
-          console.log(JSON.stringify(result, null, 2));
+        if (!parsed.options.summary) {
+          console.log(JSON.stringify(result));
         } else {
           console.log(`✅ Notes updated successfully for application ${applicationId}`);
         }
@@ -1197,12 +1310,12 @@ function main() {
     }
     
   } catch (error) {
-    if (parsed.options.json) {
+    if (!parsed.options.summary) {
       console.error(JSON.stringify({
         error: error.message,
         status: error.status,
         data: error.data
-      }, null, 2));
+      }));
     } else {
       console.error(`❌ BambooHR Error: ${error.message}`);
       if (error.status) {

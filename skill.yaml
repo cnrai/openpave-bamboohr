@@ -2,7 +2,7 @@
 # Query BambooHR for time off and employee information
 
 name: bamboohr
-version: 1.0.4
+version: 1.1.0
 description: Query BambooHR for time off, employees, and applicant tracking
 
 author:
@@ -33,7 +33,6 @@ tokens:
 # Global options available for all commands
 global_options:
   - --company <domain>        # Company domain (default crholdingslimited)
-  - --json                    # Output raw JSON
   - --summary                 # Human-readable output
   - --help                    # Show help
 
@@ -46,13 +45,11 @@ commands:
       - -e, --end <date>
       - -w, --week
       - --summary
-      - --json
 
   - name: directory
     description: Get employee directory
     options:
       - --summary
-      - --json
 
   - name: employee
     description: Get a specific employee by ID
@@ -60,7 +57,14 @@ commands:
       - <id>
     options:
       - -f, --fields <fields>
-      - --json
+
+  - name: employee-tables
+    description: Get employee table data (job info, compensation history, etc.)
+    args:
+      - <id>
+      - "[table-name]"
+    options:
+      - --summary
 
   - name: time-off
     description: Get time off requests
@@ -69,12 +73,10 @@ commands:
       - -e, --end <date>
       - --status <status>
       - --employee <id>
-      - --json
 
   - name: time-off-types
     description: List time off types
     options:
-      - --json
 
   - name: candidates
     description: List job candidates/applications
@@ -86,7 +88,6 @@ commands:
       - -p, --page <page>
       - -l, --limit <limit>
       - --summary
-      - --json
 
   - name: candidate
     description: Get a specific candidate by application ID
@@ -94,13 +95,11 @@ commands:
       - <id>
     options:
       - --summary
-      - --json
 
   - name: statuses
     description: List applicant statuses
     options:
       - --summary
-      - --json
 
   - name: jobs
     description: List job openings
@@ -109,7 +108,6 @@ commands:
       - --sort <field>
       - --order <order>
       - --summary
-      - --json
 
   - name: update-candidate-status
     description: Update candidate status
@@ -117,7 +115,6 @@ commands:
       - <applicationId>
       - <statusId>
     options:
-      - --json
 
   - name: add-candidate-comment
     description: Add a comment to a candidate
@@ -125,7 +122,6 @@ commands:
       - <applicationId>
       - <comment>
     options:
-      - --json
 
   - name: add-candidate
     description: Create a new candidate application
@@ -144,7 +140,6 @@ commands:
       - --website <url>
       - --linkedin <url>
       - --cover-letter <text>
-      - --json
     required:
       - --first-name
       - --last-name
@@ -156,7 +151,6 @@ commands:
       - <applicationId>
     options:
       - -o, --output <path>
-      - --json
 
   - name: candidate-comments
     description: Get comments for a candidate application
@@ -164,7 +158,6 @@ commands:
       - <applicationId>
     options:
       - --summary
-      - --json
 
   - name: candidate-notes
     description: Get private notes for a candidate application
@@ -172,7 +165,6 @@ commands:
       - <applicationId>
     options:
       - --summary
-      - --json
 
   - name: update-candidate-notes
     description: Add or update private notes for a candidate
@@ -180,7 +172,6 @@ commands:
       - <applicationId>
       - <notes>
     options:
-      - --json
 
 # Configuration
 configuration:
