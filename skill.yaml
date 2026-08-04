@@ -2,7 +2,7 @@
 # Query BambooHR for time off and employee information
 
 name: bamboohr
-version: 1.1.0
+version: 1.1.1
 description: Query BambooHR for time off, employees, and applicant tracking
 
 author:
@@ -35,6 +35,21 @@ global_options:
   - --company <domain>        # Company domain (default crholdingslimited)
   - --summary                 # Human-readable output
   - --help                    # Show help
+
+usage_notes: |
+  IMPORTANT FOR AI AGENTS:
+  
+  HR Data Handling Rules:
+  - BambooHR data is SENSITIVE — treat employee info as confidential
+  - Only show employee details on a need-to-know basis
+  - Never expose salary/compensation data without explicit approval
+  - When listing who's out, only show name, dates, and type of leave (not reasons)
+  
+  Candidate Management:
+  - Never delete candidates or applications without explicit user approval
+  - Always check current status before updating a candidate's status
+  - When downloading CVs, save to tmp/ directory
+  - Add comments to track the review process and decisions
 
 # Available commands
 commands:
